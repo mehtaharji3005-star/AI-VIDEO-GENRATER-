@@ -2,7 +2,7 @@ import os
 import tempfile
 import numpy as np
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 from gtts import gTTS
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
@@ -13,26 +13,24 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- COMIC PROCESSING FUNCTIONS ---
+# --- COMIC PROCESSING FUNCTIONS (PURE PIL) ---
 
-def apply_comic_effect(img_bgr: np.ndarray, blur_ksize: int = 7, line_size: int = 9) -> np.ndarray:
-    """Applies a cartoon/comic effect using OpenCV edge detection and bilateral filtering."""
-    # 1. Smooth color regions using Bilateral Filtering
-    color = cv2.bilateralFilter(img_bgr, d=9, sigmaColor=250, sigmaSpace=250)
+def apply_comic_effect(pil_img: Image.Image, posterize_bits: int = 4) -> Image.Image:
+    """Applies a comic/cartoon effect using standard PIL filters without OpenCV."""
+    # Convert image to RGB mode
+    rgb_img = pil_img.convert("RGB")
     
-    # 2. Extract crisp comic-style line edges
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    blur_ksize = blur_ksize if blur_ksize % 2 != 0 else blur_ksize + 1
-    blur = cv2.medianBlur(gray, blur_ksize)
+    # 1. Posterize to reduce colors and create distinct regions
+    color_smooth = ImageOps.posterize(rgb_img, posterize_bits)
     
-    line_size = line_size if line_size % 2 != 0 else line_size + 1
-    edges = cv2.adaptiveThreshold(
-        blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, blockSize=line_size, C=2
-    )
-    edges_colored = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    # 2. Extract black outlines using line edges
+    gray_img = rgb_img.convert("L")
+    edges = gray_img.filter(ImageFilter.FIND_EDGES)
+    edges = ImageOps.invert(edges)  # Invert to get black lines on white background
+    edges = edges.point(lambda p: 255 if p > 180 else 0)  # Threshold crisp dark lines
     
-    # 3. Combine color image with edges
-    comic = cv2.bitwise_and(color, edges_colored)
+    # 3. Combine color regions with line edges
+    comic = Image.composite(color_smooth, Image.new("RGB", rgb_img.size, "black"), edges.convert("1"))
     return comic
 
 
@@ -103,8 +101,7 @@ st.markdown("Convert your photos and custom narration scripts into an animated c
 st.sidebar.header("⚙️ Configuration")
 tts_lang = st.sidebar.selectbox("Voice Language", options=["en", "es", "fr", "de", "it", "hi"], index=0)
 bubble_style = st.sidebar.radio("Caption Style", options=["Banner", "Speech Bubble"])
-blur_k = st.sidebar.slider("Edge Smoothness", min_value=3, max_value=15, value=7, step=2)
-line_s = st.sidebar.slider("Comic Line Thickness", min_value=3, max_value=15, value=9, step=2)
+color_depth = st.sidebar.slider("Color Levels (Posterization)", min_value=1, max_value=8, value=4, step=1)
 
 st.subheader("1. Upload Your Scene Photos")
 uploaded_files = st.file_uploader(
@@ -121,19 +118,16 @@ if uploaded_files:
         st.markdown(f"#### Scene {idx + 1}: `{uploaded_file.name}`")
         col_img, col_input = st.columns([1, 2])
 
-        # Read uploaded image bytes into OpenCV format
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-        img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        # Read uploaded image directly using Pillow (no cv2)
+        raw_pil_img = Image.open(uploaded_file)
 
         with col_img:
             # Generate preview with applied effect
-            comic_preview = apply_comic_effect(img_bgr, blur_ksize=blur_k, line_size=line_s)
-            rgb_preview = cv2.cvtColor(comic_preview, cv2.COLOR_BGR2RGB)
-            pil_preview = Image.fromarray(rgb_preview)
+            comic_preview = apply_comic_effect(raw_pil_img, posterize_bits=color_depth)
             
             # Temporary render for previewing text box
             preview_text = st.session_state.get(f"script_{idx}", f"Scene {idx + 1} narration...")
-            pil_preview_with_text = draw_speech_bubble(pil_preview.copy(), preview_text, bubble_style)
+            pil_preview_with_text = draw_speech_bubble(comic_preview.copy(), preview_text, bubble_style)
             
             st.image(pil_preview_with_text, caption=f"Scene {idx + 1} Preview", use_container_width=True)
 
@@ -150,7 +144,7 @@ if uploaded_files:
             )
 
         scenes_data.append({
-            "img_bgr": img_bgr,
+            "pil_img": raw_pil_img,
             "text": script_text,
             "duration": duration,
             "index": idx
@@ -172,10 +166,8 @@ if uploaded_files:
                 status_text.text(f"Processing scene {i + 1} of {total_scenes}...")
 
                 # 1. Apply visual effect & text overlay
-                comic_bgr = apply_comic_effect(scene["img_bgr"], blur_k, line_s)
-                comic_rgb = cv2.cvtColor(comic_bgr, cv2.COLOR_BGR2RGB)
-                pil_frame = Image.fromarray(comic_rgb)
-                final_frame = draw_speech_bubble(pil_frame, scene["text"], bubble_style)
+                comic_img = apply_comic_effect(scene["pil_img"], posterize_bits=color_depth)
+                final_frame = draw_speech_bubble(comic_img, scene["text"], bubble_style)
 
                 # Save temporary image frame
                 frame_path = os.path.join(temp_dir, f"frame_{i}.png")
