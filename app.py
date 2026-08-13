@@ -123,7 +123,7 @@ if uploaded_files:
         col_img, col_input = st.columns([1, 2])
 
         # Read uploaded image bytes into OpenCV format
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=uint8=np.uint8)
+        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
         with col_img:
@@ -225,7 +225,7 @@ if uploaded_files:
             st.download_button(
                 label="⬇️ Download Comic Video",
                 data=video_bytes,
-                file_name="enter",
+                file_name="comic_story_video.mp4",
                 mime="video/mp4"
             )
 else:
