@@ -13,11 +13,29 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- SUPPORTED GTTS LANGUAGES ---
+LANGUAGE_OPTIONS = {
+    "English": "en",
+    "Punjabi": "pa",
+    "Hindi": "hi",
+    "Spanish": "es",
+    "French": "fr",
+    "German": "de",
+    "Italian": "it",
+    "Japanese": "ja",
+    "Korean": "ko",
+    "Chinese (Mandarin)": "zh-CN",
+    "Portuguese": "pt",
+    "Russian": "ru",
+    "Arabic": "ar",
+    "Turkish": "tr",
+    "Dutch": "nl"
+}
+
 # --- COMIC PROCESSING FUNCTIONS (PURE PIL) ---
 
 def apply_comic_effect(pil_img: Image.Image, posterize_bits: int = 4) -> Image.Image:
     """Applies a comic/cartoon effect using standard PIL filters without OpenCV."""
-    # Convert image to RGB mode
     rgb_img = pil_img.convert("RGB")
     
     # 1. Posterize to reduce colors and create distinct regions
@@ -96,10 +114,18 @@ def draw_speech_bubble(pil_img: Image.Image, text: str, bubble_style: str = "Ban
 # --- STREAMLIT UI LAYOUT ---
 
 st.title("🎨 Comic Video Generator")
-st.markdown("Convert your photos and custom narration scripts into an animated comic book video with AI voiceovers.")
+st.markdown("Convert your photos and custom scripts into a comic book video with AI voiceovers in multiple languages.")
 
 st.sidebar.header("⚙️ Configuration")
-tts_lang = st.sidebar.selectbox("Voice Language", options=["en", "es", "fr", "de", "it", "hi"], index=0)
+
+# 🗣️ LANGUAGE SELECTION
+selected_lang_label = st.sidebar.selectbox(
+    "🗣️ Voiceover Language", 
+    options=list(LANGUAGE_OPTIONS.keys()), 
+    index=0
+)
+tts_lang_code = LANGUAGE_OPTIONS[selected_lang_label]
+
 bubble_style = st.sidebar.radio("Caption Style", options=["Banner", "Speech Bubble"])
 color_depth = st.sidebar.slider("Color Levels (Posterization)", min_value=1, max_value=8, value=4, step=1)
 
@@ -118,7 +144,7 @@ if uploaded_files:
         st.markdown(f"#### Scene {idx + 1}: `{uploaded_file.name}`")
         col_img, col_input = st.columns([1, 2])
 
-        # Read uploaded image directly using Pillow (no cv2)
+        # Read uploaded image directly using Pillow
         raw_pil_img = Image.open(uploaded_file)
 
         with col_img:
@@ -133,8 +159,8 @@ if uploaded_files:
 
         with col_input:
             script_text = st.text_area(
-                f"Narration Script for Scene {idx + 1}",
-                value=f"This is scene {idx + 1} of my comic journey!",
+                f"Narration Script for Scene {idx + 1} ({selected_lang_label})",
+                value=f"This is scene {idx + 1} of my story!",
                 key=f"script_{idx}"
             )
             duration = st.number_input(
@@ -163,7 +189,7 @@ if uploaded_files:
             total_scenes = len(scenes_data)
 
             for i, scene in enumerate(scenes_data):
-                status_text.text(f"Processing scene {i + 1} of {total_scenes}...")
+                status_text.text(f"Processing scene {i + 1} of {total_scenes} (Voice: {selected_lang_label})...")
 
                 # 1. Apply visual effect & text overlay
                 comic_img = apply_comic_effect(scene["pil_img"], posterize_bits=color_depth)
@@ -173,9 +199,9 @@ if uploaded_files:
                 frame_path = os.path.join(temp_dir, f"frame_{i}.png")
                 final_frame.save(frame_path)
 
-                # 2. Generate Audio Voiceover
+                # 2. Generate Audio Voiceover using chosen language code
                 audio_path = os.path.join(temp_dir, f"voice_{i}.mp3")
-                tts = gTTS(text=scene["text"], lang=tts_lang, slow=False)
+                tts = gTTS(text=scene["text"], lang=tts_lang_code, slow=False)
                 tts.save(audio_path)
 
                 # 3. Create MoviePy Clip
